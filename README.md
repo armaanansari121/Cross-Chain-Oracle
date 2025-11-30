@@ -47,28 +47,34 @@ forge build
 1) **Deploy the destination callback (Chainlink-compatible proxy)**
 ```bash
 forge create src/FeedProxy.sol:MirroredPriceFeedCallback \
+  --broadcast \
   --rpc-url $DESTINATION_RPC \
   --private-key $DESTINATION_PRIVATE_KEY \
+  --value 0.5ether \
   --constructor-args $DESTINATION_CALLBACK_PROXY_ADDR $ORIGIN_ADDR <decimals> "<description>"
 ```
 - Use the origin feed’s `decimals()` and `description()` values so consumers see identical metadata.
+- Set the `$CALLBACK_ADDRESS` variable to the new address.
 
 2) **Deploy the reactive listener to the Reactive VM**
 ```bash
 forge create src/FeedReactive.sol:ChainlinkFeedMirrorReactive \
+  --broadcast \
   --rpc-url $REACTIVE_RPC \
   --private-key $REACTIVE_PRIVATE_KEY \
+  --value 0.5ether \
   --constructor-args $SYSTEM_CONTRACT_ADDR $ORIGIN_CHAIN_ID $DESTINATION_CHAIN_ID $ORIGIN_ADDR $TOPIC_0 <callback_address> <decimals> "<description>"
 ```
-- Replace `<callback_address>` with the address from step 1. On deployment, the contract auto-subscribes to the origin feed events (when running against the Reactive Network, not inside the VM copy).
+- On deployment, the contract auto-subscribes to the origin feed events (when running against the Reactive Network, not inside the VM copy).
 
 3) **(Optional) Local dry-run with the mock oracle**
-- Deploy `MockOracle` to your origin dev chain (e.g., Anvil) and call `emitEvent()` to produce `AnswerUpdated` logs. The Reactive Network should relay them, invoking `callback` on the destination and updating `latestRoundData`.
+- Deploy `MockOracle` to your origin dev chain and call `emitEvent()` to produce `AnswerUpdated` logs. The Reactive Network should relay them, invoking `callback` on the destination and updating `latestRoundData`.
+- Or you can directly use a real Chainlink Price Feed to skip the hassle.
 
 ### How to Read the Mirrored Feed
-- Latest values: `cast call <callback_address> "latestRoundData()(uint80,int256,uint256,uint256,uint80)"`
-- Historical round: `cast call <callback_address> "getRoundData(uint80)(uint80,int256,uint256,uint256,uint80)" <roundId>`
-- Metadata: `cast call <callback_address> "decimals()(uint8)"` and `description()`.
+- Latest values: `cast call $CALLBACK_ADDR "latestRoundData()(uint80,int256,uint256,uint256,uint80)" --rpc-url $DESTINATION_RPC`
+- Historical round: `cast call $CALLBACK_ADDRESS "getRoundData(uint80)(uint80,int256,uint256,uint256,uint80)" <roundId> --rpc-url $DESTINATION_RPC`
+- Metadata: `cast call $CALLBACK_ADDR "decimals()(uint8)" --rpc-url $DESTINATION_RPC` and same for `description()`.
 
 ### Testing & Maintenance
 - Static checks: `forge fmt` and `forge build`
@@ -76,3 +82,14 @@ forge create src/FeedReactive.sol:ChainlinkFeedMirrorReactive \
 ### Notes
 - Only the Reactive system contract is authorized to call `callback`; user transactions cannot mutate the mirrored state.
 
+### Transactions Trace: 
+- FeedProxy.sol:MirroredPriceFeedCallback Deployment Transaction: https://lasna.reactscan.net/address/0xe7581d539156e9811c7c36bfbcd68741fa1fdfbc/137
+- FeedReactive.sol:ChainlinkFeedMirrorReactive Deployment Transaction: https://lasna.reactscan.net/address/0xe7581d539156e9811c7c36bfbcd68741fa1fdfbc/138
+- Origin "ETH / USD" Feed Answer Updated Transaction: https://sepolia.etherscan.io/tx/0xc6f7f32a23f0fa2740d9422b2c18a2da95c3b83f86a7dcac71a386a86a168cb6#eventlog
+- ChainlinkFeedMirrorReactive - React To Event Transaction: https://lasna.reactscan.net/address/0xe7581d539156e9811c7c36bfbcd68741fa1fdfbc/139
+- MirroredPriceFeedCallback - Callback Transaction: https://lasna.reactscan.net/tx/0xbbc4faf7ebd1dd5d684d58ecc775eac0afea97fe65cd3f0e7ad4111cb026ef8f
+
+For future event emissions and reactions observe the following Smart Contracts:
+- FeedProxy.sol:MirroredPriceFeedCallback ==> https://lasna.reactscan.net/address/0xe7581d539156e9811c7c36bfbcd68741fa1fdfbc/contract/0x5a756ce84899169264e845d1703ffc27d71370b0?screen=transactions
+- FeedReactive.sol:ChainlinkFeedMirrorReactive ==> https://lasna.reactscan.net/address/0xe7581d539156e9811c7c36bfbcd68741fa1fdfbc/contract/0x7fb85cb094c60ba31c66aab0ca07149eef857461?screen=transactions
+- Origin "ETH / USD" Feed ==> https://sepolia.etherscan.io/address/0x719E22E3D4b690E5d96cCb40619180B5427F14AE#events
